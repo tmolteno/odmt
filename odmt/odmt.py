@@ -9,13 +9,9 @@
 
 import argparse, os, sys, fnmatch, ezdxf
 
-# configuration
-app_name        = 'odmt'
-app_version     = '1.0.0'
-app_description = 'OpenSCAD DXF Merge Tool (odmt) - v' + app_version
 
 # default i/o
-input  = ['./input']
+inputs  = ['./input']
 output = './output/merged.dxf'
 
 # search and ignore files pattern
@@ -24,91 +20,35 @@ ignore = ['*_ignore_*']
 
 # layers indexed colors
 # http://sub-atomic.com/~moses/acadcolors.html
-colors = range(10)
-colors.extend(range(10, 250, 10))
+colors = list(range(10))
+colors.extend(list(range(10, 250, 10)))
 colors = map(str, colors)
 
-# command line parser
-parser = argparse.ArgumentParser(
-    prog        = app_name,
-    description = app_description)
-parser.add_argument('--input', '-i',
-    nargs   = '+',
-    default = input,
-    metavar = 'path',
-    help    = 'input file or directory - default: ['
-                + ', '.join(input) + ']')
-parser.add_argument('--output', '-o',
-    default = output,
-    metavar = 'path',
-    help    = 'output file - default: ' + output)
-parser.add_argument('--search',
-    nargs   = '+',
-    default = search,
-    metavar = 'pattern',
-    help    = 'search file pattern - default: ['
-                + ', '.join(search) + ']')
-parser.add_argument('--ignore',
-    nargs   = '+',
-    default = ignore,
-    metavar = 'pattern',
-    help    = 'ignored file/directory pattern - default: ['
-                + ', '.join(ignore) + ']')
-parser.add_argument('--colors',
-    nargs   = '+',
-    default = colors,
-    metavar = 'index',
-    help    = 'layers indexed colors - default: ['
-                + ', '.join(colors) + ']')
-parser.add_argument('--nolayers',
-    action = 'store_true',
-    help   = 'if set, all files will be merged into the same layer')
-parser.add_argument('--version', '-v',
-    action  = 'version',
-    version = '%(prog)s ' + app_version)
 
-# parse the command line
-args = parser.parse_args()
-
-# local variables assignment
-input    = args.input
-output   = os.path.realpath(args.output)
-search   = args.search
-ignore   = args.ignore
-colors   = map(int, args.colors)
-nolayers = args.nolayers
-
-# test output directory
-output_dir = os.path.dirname(output)
-
-if os.path.isdir(output_dir) == False:
-    print 'output directory not found :', output_dir
-    sys.exit(1);
-
-def file_match(input, patterns):
+def file_match(inputs, patterns):
     'return if input match at least one pattern'
     for pattern in patterns:
-        if fnmatch.fnmatch(input, pattern):
+        if fnmatch.fnmatch(inputs, pattern):
             return True
     return False
 
-def dxf_search(input):
+def dxf_search(inputs):
     'scan an input file or directory for DXF file'
     found   = []
     ignored = []
-    if os.path.isdir(input):
-        for file in os.listdir(input):
-            r = dxf_search(os.path.join(input, file))
+    if os.path.isdir(inputs):
+        for file in os.listdir(inputs):
+            r = dxf_search(os.path.join(inputs, file))
             found.extend(r[0])
             ignored.extend(r[1])
-    elif os.path.isfile(input):
-        if file_match(input, search):
-            if file_match(input, ignore):
-                ignored.append(input)
+    elif os.path.isfile(inputs):
+        if file_match(inputs, search):
+            if file_match(inputs, ignore):
+                ignored.append(inputs)
             else:
-                found.append(input)
+                found.append(inputs)
         else:
-            ignored.append(input)
+            ignored.append(inputs)
     return found, ignored
 
 def dxf_parse(file):
@@ -166,7 +106,7 @@ def dxf_parse(file):
     # no polyline found
     return None
 
-def dxf_merge(files, colors = range(0, 256), nolayer = False):
+def dxf_merge(files, colors = range(0, 256), nolayers = False):
     'merge DXF file and convert continuous line to polyline.'
     
     # DXF file
@@ -180,8 +120,11 @@ def dxf_merge(files, colors = range(0, 256), nolayer = False):
     layer_names = []
 
     layer_colors = iter(colors)
-    layer_color  = next(layer_colors)
-
+    try:
+        layer_color  = next(layer_colors)
+    except:
+        layer_color = 0
+        pass
     # for each files
     for file in files:
         # layer name
@@ -197,21 +140,22 @@ def dxf_merge(files, colors = range(0, 256), nolayer = False):
 
         # create layer
         if layer_num < 2 or nolayers == False:
-            dwg.layers.create(
-                name       = layer_name, 
-                dxfattribs = {'color': layer_color})
+            dwg.layers.add(
+                name       = layer_name)
 
         # parse file
         polylines = dxf_parse(file)
         if len(polylines):
             for polyline in polylines:
-                msp.add_lwpolyline(polyline, dxfattribs={'layer': layer_name})
+                pl = [(float(p1), float(p2)) for p1,p2 in polyline]
+                print(pl)
+                msp.add_lwpolyline(pl)
 
         # next layer color
-        layer_color = next(layer_colors, False)
-        if layer_color == False:
-            layer_colors = iter(colors)
-            layer_color  = next(layer_colors)
+        # layer_color = next(layer_colors, False)
+        # if layer_color == False:
+        #     layer_colors = iter(colors)
+        #     layer_color  = next(layer_colors)
 
         # increment layer num
         layer_num += 1
@@ -219,21 +163,91 @@ def dxf_merge(files, colors = range(0, 256), nolayer = False):
     #return the dwg object
     return dwg
 
-# DXF files
-input_files   = []
-ignored_files = []
 
-# make the files tree
-for item in input:
-    result = dxf_search(os.path.realpath(item))
-    input_files.extend(result[0])
-    ignored_files.extend(result[1])
+def odmt_cli():
+    # configuration
 
-# do the serious job
-dxf_merge(input_files, colors, nolayers).saveas(output)
+    global inputs, output, search, ignore, colors
+    app_name        = 'odmt'
+    app_version     = '1.0.0'
+    app_description = 'OpenSCAD DXF Merge Tool (odmt) - v' + app_version
 
-# success message
-print 'input   :', '\n\t  '.join(input_files)
-if len(ignored_files):
-    print '\nignored :', '\n\t  '.join(ignored_files)
-print '\noutput  :', output
+
+    # command line parser
+    parser = argparse.ArgumentParser(
+        prog        = app_name,
+        description = app_description)
+    parser.add_argument('--inputs', '-i',
+        nargs   = '+',
+        default = inputs,
+        metavar = 'path',
+        help    = 'input file or directory - default: ['
+                    + ', '.join(inputs) + ']')
+    parser.add_argument('--output', '-o',
+        default = output,
+        metavar = 'path',
+        help    = 'output file - default: ' + output)
+    parser.add_argument('--search',
+        nargs   = '+',
+        default = search,
+        metavar = 'pattern',
+        help    = 'search file pattern - default: ['
+                    + ', '.join(search) + ']')
+    parser.add_argument('--ignore',
+        nargs   = '+',
+        default = ignore,
+        metavar = 'pattern',
+        help    = 'ignored file/directory pattern - default: ['
+                    + ', '.join(ignore) + ']')
+    parser.add_argument('--colors',
+        nargs   = '+',
+        default = colors,
+        metavar = 'index',
+        help    = 'layers indexed colors - default: ['
+                    + ', '.join(colors) + ']')
+    parser.add_argument('--nolayers',
+        action = 'store_true',
+        help   = 'if set, all files will be merged into the same layer')
+    parser.add_argument('--version', '-v',
+        action  = 'version',
+        version = '%(prog)s ' + app_version)
+
+    # parse the command line
+    args = parser.parse_args()
+
+    # local variables assignment
+    inputs    = args.inputs
+    output   = os.path.realpath(args.output)
+    search   = args.search
+    ignore   = args.ignore
+    colors   = map(int, args.colors)
+    nolayers = args.nolayers
+
+    # test output directory
+    output_dir = os.path.dirname(output)
+
+    if os.path.isdir(output_dir) == False:
+        print('output directory not found :', output_dir)
+        sys.exit(1);
+
+    # DXF files
+    input_files   = []
+    ignored_files = []
+
+    # make the files tree
+    for item in inputs:
+        result = dxf_search(os.path.realpath(item))
+        input_files.extend(result[0])
+        ignored_files.extend(result[1])
+
+    # do the serious job
+    dxf_merge(input_files, colors, nolayers).saveas(output)
+
+    # success message
+    print('inputs   :', '\n\t  '.join(input_files))
+    if len(ignored_files):
+        print('\nignored :', '\n\t  '.join(ignored_files))
+    print('\noutput  :', output)
+
+if __name__=="__main__":
+    main()
