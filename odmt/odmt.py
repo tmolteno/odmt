@@ -148,7 +148,6 @@ def dxf_merge(files, colors = range(0, 256), nolayers = False):
         if len(polylines):
             for polyline in polylines:
                 pl = [(float(p1), float(p2)) for p1,p2 in polyline]
-                print(pl)
                 msp.add_lwpolyline(pl)
 
         # next layer color
